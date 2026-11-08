@@ -46,7 +46,7 @@ async function paint(b64, size, scene) {
     fd.append("image", new Blob([Buffer.from(b64, "base64")], { type: "image/png" }), "doodle.png");
     fd.append("prompt", prompt);
     fd.append("size", size);
-    fd.append("quality", process.env.OPENAI_IMAGE_QUALITY || "medium");
+    fd.append("quality", process.env.OPENAI_IMAGE_QUALITY || "low");
     fd.append("output_format", "jpeg");
     fd.append("output_compression", "85");
     fd.append("n", "1");
