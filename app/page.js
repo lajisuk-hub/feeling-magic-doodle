@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { COLORS, audio, compose, playScore, stopAll } from "../lib/sound";
+import { COLORS, audio, stopAll } from "../lib/sound";
+import { PIECES, pickPiece, loadPiece } from "../lib/music";
 import { analyze, flatten, samplePoints, MagicPainter } from "../lib/magic";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -25,6 +26,7 @@ export default function Home() {
           <h1>내가 하고 싶은 대로<br />다 그려요!</h1>
           <p>신날 때도, 속상할 때도 마음대로 끼적여 봐요.<br />다 그리면 <b>✨매직</b>이 멋진 그림과 음악으로 바꿔 줘요.</p>
           <button className="big go" onClick={() => { audio(); strokes.current = []; setScreen("draw"); }}>🖍️ 그리러 가기</button>
+          <Credits />
         </div>
       )}
       {screen === "draw" && (
@@ -144,74 +146,133 @@ function Sketch({ strokes, aspect, onMagic, onHome }) {
   );
 }
 
-// ── 매직 화면: 그린 순서대로 멋진 그림이 피어나며 음악이 나온다 ──
+
+// ── 음악 출처 (첫 화면 아래 작은 단추) ──
+function Credits() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="credits">
+      <button onClick={() => setOpen((v) => !v)}>🎼 음악 출처</button>
+      {open && (
+        <ul>
+          {[...PIECES.fire, ...PIECES.calm].map((p) => <li key={p.id}><b>{p.title}</b> — {p.credit}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// 아이 그림을 흰 종이 위 그림 파일로 (AI에게 보여 주려고)
+function doodlePng(strokes, aspect) {
+  const w = 768, h = Math.round(768 * aspect);
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  x.fillStyle = "#fff"; x.fillRect(0, 0, w, h); x.lineCap = "round"; x.lineJoin = "round"; x.lineWidth = 6;
+  for (const s of strokes) {
+    x.strokeStyle = COLORS[s.c].c === "#ffd60a" ? "#e0b800" : COLORS[s.c].c;
+    x.beginPath(); s.p.forEach((p, i) => (i ? x.lineTo(p[0] * w, p[1] * h) : x.moveTo(p[0] * w, p[1] * h))); x.stroke();
+  }
+  return { img: c.toDataURL("image/png"), w, h };
+}
+
+// AI 모양 선 → 그림 선 기록 모양으로 (색은 아이가 많이 쓴 색을 돌려 가며)
+function shapeStrokes(guess, strokes) {
+  const cnt = {};
+  for (const s of strokes) cnt[s.c] = (cnt[s.c] || 0) + s.p.length;
+  const cols = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).map(Number);
+  return guess.strokes.map((pts, i) => ({ c: cols[i % cols.length] ?? 0, t0: i, p: pts.map((q) => [q[0], q[1], 0]) }));
+}
+
+// ── 매직 화면: AI가 무엇을 닮았는지 찾아 그 모양을 그리고, 클래식 명곡이 흐른다 ──
 function Magic({ strokes, aspect, onNew }) {
   const stage = useRef(null);
   const refs = { bg: useRef(null), wash: useRef(null), glow: useRef(null), core: useRef(null), fx: useRef(null) };
   const [run, setRun] = useState(0);
-  const [done, setDone] = useState(false);
-  const [poof, setPoof] = useState(true);
-  const info = useRef(null);
-  if (!info.current) {
-    const an = analyze(strokes, aspect);
-    const path = flatten(strokes, aspect);
-    const samples = samplePoints(path, an.fire);
-    const score = compose(samples, an.fire);
-    info.current = { an, path, samples, score };
-  }
-  const { an, path, samples, score } = info.current;
+  const [phase, setPhase] = useState("think"); // think | draw | done
+  const [guess, setGuess] = useState(undefined); // undefined=묻는 중, null=못 맞힘
+  const an = useRef(null);
+  if (!an.current) an.current = analyze(strokes, aspect);
+  const fire = an.current.fire;
+  const piece = useRef(null);
+  const player = useRef(null);
+  if (!piece.current) piece.current = pickPiece(fire);
 
+  // 1) AI에게 묻기 + 곡 미리 불러 두기 (한 번만)
+  useEffect(() => {
+    player.current = loadPiece(piece.current);
+    let gone = false;
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 25000);
+    fetch("/api/guess", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doodlePng(strokes, aspect)), signal: ctl.signal })
+      .then((r) => r.json()).then((j) => { if (!gone) setGuess(j.strokes ? j : null); })
+      .catch(() => { if (!gone) setGuess(null); })
+      .finally(() => clearTimeout(to));
+    return () => { gone = true; clearTimeout(to); ctl.abort(); player.current?.stop(); stopAll(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 2) 그리기 + 음악 (답이 오면, 그리고 「다시 듣기」 때마다)
   useEffect(() => {
     const el = stage.current, w = el.clientWidth, h = el.clientHeight;
     const layers = Object.fromEntries(Object.entries(refs).map(([k, r]) => [k, r.current]));
-    const painter = new MagicPainter(layers, w, h, an.fire);
-    layers.wash.style.filter = an.fire ? `blur(${Math.round(painter.bw * 1.4)}px)` : "none";
-    layers.wash.style.opacity = an.fire ? "0.55" : "1";
-    setDone(false); setPoof(true);
-    const ac = audio();
-    let start = null, raf = 0, last = performance.now(), fired = 0, finaled = false, alive = true;
-    const timer = setTimeout(() => { setPoof(false); start = playScore(score); }, 900);
-    const knotsT = [0, ...score.noteTimes, score.melodyEnd];
-    const knotsL = [0, ...samples.map((s) => s.L), path.total];
-    const lengthAt = (t) => {
-      if (t <= 0) return 0;
-      for (let i = 1; i < knotsT.length; i++) if (t <= knotsT[i]) {
-        const k = (t - knotsT[i - 1]) / Math.max(1e-6, knotsT[i] - knotsT[i - 1]);
-        return knotsL[i - 1] + (knotsL[i] - knotsL[i - 1]) * k;
-      }
-      return path.total;
-    };
-    const tick = (nowMs) => {
+    const painter = new MagicPainter(layers, w, h, fire);
+    layers.wash.style.filter = fire ? `blur(${Math.round(painter.bw * 1.4)}px)` : "none";
+    layers.wash.style.opacity = fire ? "0.55" : "1";
+    painter.ghost(strokes, aspect); // 아이가 그린 선은 은은하게 깔아 둔다
+    let raf = 0, alive = true, last = performance.now();
+    if (guess === undefined) { // 아직 생각 중: 반짝이만
+      setPhase("think");
+      const idle = (now) => { if (!alive) return; painter.frame(Math.min(0.05, (now - last) / 1000), now / 1000); last = now; raf = requestAnimationFrame(idle); };
+      raf = requestAnimationFrame(idle);
+      return () => { alive = false; cancelAnimationFrame(raf); };
+    }
+    const target = guess ? shapeStrokes(guess, strokes) : strokes;
+    const path = flatten(target, aspect);
+    const samples = samplePoints(path, fire);
+    const DRAW = Math.max(6, Math.min(11, 4 + path.total * 0.9)); // 모양을 그리는 시간(초)
+    setPhase("draw");
+    player.current.play();
+    const t0 = performance.now() + 300;
+    let fired = 0, finaled = false, lastPop = 0, prevLv = 0;
+    const tick = (now) => {
       if (!alive) return;
-      const dt = Math.min(0.05, (nowMs - last) / 1000); last = nowMs;
-      if (start != null) {
-        const t = ac.currentTime - start;
-        painter.advance(path, lengthAt(t));
-        while (fired < samples.length && score.noteTimes[fired] <= t) { painter.burst(samples[fired]); fired++; }
-        if (!finaled && t >= score.melodyEnd) { finaled = true; painter.finale(); setTimeout(() => alive && setDone(true), 900); }
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const t = (now - t0) / 1000;
+      if (t > 0) {
+        const k = Math.min(1, t / DRAW), ease = 1 - Math.pow(1 - k, 1.6);
+        painter.advance(path, path.total * ease);
+        while (fired < samples.length && samples[fired].L <= path.total * ease) { painter.burst(samples[fired]); fired++; }
+        if (!finaled && k >= 1) { finaled = true; painter.finale(); setTimeout(() => alive && setPhase("done"), 700); }
+        // 음악이 커지는 순간마다 모양 위에서 반짝
+        const lv = player.current.level();
+        if (lv - prevLv > 0.06 && t - lastPop > (fire ? 0.35 : 0.5) && samples.length) {
+          const s = samples[Math.floor(Math.random() * Math.max(1, finaled ? samples.length : fired))];
+          if (s) { finaled ? painter.pop(s) : painter.burst(s, 0.7); lastPop = t; }
+        }
+        prevLv = prevLv * 0.7 + lv * 0.3;
       }
-      painter.frame(dt, nowMs / 1000);
+      painter.frame(dt, now / 1000);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => { alive = false; clearTimeout(timer); cancelAnimationFrame(raf); stopAll(); };
-  }, [run]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { alive = false; cancelAnimationFrame(raf); };
+  }, [guess, run]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const say = guess ? guess.say : fire ? "와! 힘찬 마음이 불꽃놀이가 되었어요 🎆" : "살랑살랑 마음이 꽃밭이 되었어요 🌸";
   return (
     <div className="sketch magic">
       <div className="top">
         <div className="say">
-          {done ? (an.fire ? <>와! 힘찬 마음이 <b>불꽃놀이</b>가 되었어요 🎆</> : <>살랑살랑 마음이 <b>꽃밭</b>이 되었어요 🌸</>)
-            : <>🎵 내 그림이 음악이 되고 있어요…</>}
+          {phase === "think" ? <>🤔 무엇처럼 보일까요…</> : phase === "done" ? <>{say}</> : <>✨ {guess ? `${guess.name} 모양으로 바뀌는 중!` : "멋진 그림으로 변신 중!"}</>}
+          {phase !== "think" && <small className="piece">🎵 {piece.current.title}</small>}
         </div>
       </div>
-      <div className={`stage ${an.fire ? "night" : "garden"}`} ref={stage}>
+      <div className={`stage ${fire ? "night" : "garden"}`} ref={stage}>
         {Object.entries(refs).map(([k, r]) => <canvas key={k} ref={r} className={`layer ${k}`} />)}
-        {poof && <div className="poof" aria-hidden><span>✨</span><b>뾰로롱!</b></div>}
+        {phase === "think" && <div className="poof think" aria-hidden><span>✨</span><b>뾰로롱!</b><em>무엇을 닮았는지 찾고 있어요</em></div>}
       </div>
       <div className="bar end">
-        <button className="big ghost" onClick={() => setRun((n) => n + 1)} disabled={!done}>🔁 다시 듣기</button>
-        <button className="big go" onClick={onNew}>🖍️ 새로 그리기</button>
+        <button className="big ghost" onClick={() => { player.current.stop(); setRun((n) => n + 1); }} disabled={phase !== "done"}>🔁 다시 보기</button>
+        <button className="big go" onClick={() => { player.current?.stop(); onNew(); }}>🖍️ 새로 그리기</button>
       </div>
     </div>
   );
