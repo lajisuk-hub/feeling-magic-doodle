@@ -1,0 +1,75 @@
+:root {
+  --ink: #3a2d4a; --muted: #8a7f99; --paper: #fffdf7;
+  --grape: #9b5de5; --pink: #ff6b9a; --sun: #ffd60a;
+  --font-title: "Jua", "Pretendard", "Malgun Gothic", sans-serif;
+  --font-ui: "Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; color: var(--ink); font-family: var(--font-ui); background: #f3eefc; overflow: hidden; }
+button { font: inherit; cursor: pointer; color: inherit; }
+button:disabled { opacity: .45; cursor: default; }
+
+.app { position: fixed; inset: 0; user-select: none; -webkit-user-select: none;
+  background: radial-gradient(circle at 15% 15%, #ffe3f1 0, transparent 40%), radial-gradient(circle at 85% 25%, #dff1ff 0, transparent 45%), radial-gradient(circle at 50% 95%, #fff3cf 0, transparent 45%), #f6f0ff; }
+.fs-btn { position: absolute; top: 10px; right: 10px; z-index: 5; width: 40px; height: 40px; border-radius: 50%; border: 0; font-size: 18px; color: #fff; background: rgba(58,45,74,.35); }
+
+/* ── 첫 화면 ─────────────────────── */
+.start { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 16px; gap: 2vh; }
+.start-deco { font-size: clamp(36px, 6vw, 72px); animation: bob 2s ease-in-out infinite; }
+.start h1 { margin: 0; font-family: var(--font-title); font-weight: 400; font-size: clamp(38px, 7vw, 96px); line-height: 1.15; color: var(--ink);
+  text-shadow: 0 4px 0 #fff, 0 8px 24px rgba(155,93,229,.25); }
+.start p { margin: 0; font-size: clamp(16px, 2vw, 24px); color: #5d4f6e; line-height: 1.6; }
+@keyframes bob { 50% { transform: translateY(-8px) rotate(-4deg); } }
+
+.big { border: 0; font-family: var(--font-title); font-size: clamp(22px, 3vw, 40px); padding: .45em 1.2em; border-radius: 999px; }
+.big.go { color: #fff; background: linear-gradient(135deg, var(--pink), var(--grape)); box-shadow: 0 8px 0 #6d3bb0, 0 16px 30px rgba(80,30,140,.35); }
+.big.go:active { transform: translateY(6px); box-shadow: 0 2px 0 #6d3bb0; }
+.big.ghost { background: #fff; color: var(--ink); box-shadow: 0 6px 0 #d9cdea; }
+.start .big { margin-top: 2vh; animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 50% { scale: 1.05; } }
+
+/* ── 스케치북 / 매직 공통 틀 ─────────── */
+.sketch { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 10px 12px 12px; gap: 10px; }
+.top { display: flex; align-items: center; gap: 10px; min-height: 52px; padding-right: 50px; }
+.home { width: 48px; height: 48px; border-radius: 50%; border: 0; background: #fff; font-size: 22px; box-shadow: 0 4px 0 #e2d8ef; flex: none; }
+.say { flex: 1; text-align: center; font-family: var(--font-title); font-size: clamp(20px, 3vw, 38px); }
+.say b { font-weight: 400; color: var(--grape); }
+.say.shake { animation: shake .5s; color: #e0457b; }
+@keyframes shake { 20%, 60% { transform: translateX(-10px); } 40%, 80% { transform: translateX(10px); } }
+
+.stage { position: relative; flex: 1; min-height: 0; border-radius: 22px; overflow: hidden; box-shadow: 0 10px 30px rgba(60,30,90,.18); }
+.stage.book { background: var(--paper); background-image: radial-gradient(rgba(150,130,180,.12) 1px, transparent 1px); background-size: 22px 22px;
+  border: 6px solid #fff; }
+.ink { position: absolute; left: 0; top: 0; touch-action: none; cursor: crosshair; }
+
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.colors { display: flex; gap: clamp(6px, 1vw, 14px); flex-wrap: wrap; }
+.dot { width: clamp(40px, 5.2vw, 64px); height: clamp(40px, 5.2vw, 64px); border-radius: 50%; border: 4px solid #fff; background: var(--c);
+  box-shadow: 0 4px 0 rgba(0,0,0,.12); transition: transform .15s; }
+.dot.on { transform: scale(1.18) translateY(-4px); box-shadow: 0 0 0 4px var(--c), 0 6px 0 rgba(0,0,0,.15); }
+.tools { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+.tool { min-width: 64px; height: clamp(52px, 6vw, 68px); border: 0; border-radius: 18px; background: #fff; font-size: 24px; line-height: 1; box-shadow: 0 4px 0 #e2d8ef; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.tool small { font-size: 12px; color: var(--muted); }
+.magic-btn { height: clamp(56px, 7vw, 80px); padding: 0 1.1em; border: 0; border-radius: 999px; font-family: var(--font-title); font-size: clamp(24px, 3.2vw, 40px); color: #fff;
+  background: linear-gradient(135deg, #ffb703, #ff6b9a 50%, #9b5de5); box-shadow: 0 6px 0 #6d3bb0, 0 12px 26px rgba(155,93,229,.35); }
+.magic-btn.ready { animation: glow 1.4s ease-in-out infinite; }
+.magic-btn:active { transform: translateY(5px); box-shadow: 0 1px 0 #6d3bb0; }
+@keyframes glow { 50% { scale: 1.07; box-shadow: 0 6px 0 #6d3bb0, 0 0 0 10px rgba(255,214,10,.35), 0 12px 30px rgba(155,93,229,.5); } }
+
+/* ── 매직 화면 ─────────────────────── */
+.magic .stage.night { background: #07061a; }
+.magic .stage.garden { background: #fff6ec; }
+.layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.bar.end { justify-content: center; gap: 18px; }
+.poof { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: radial-gradient(circle, rgba(255,255,255,.95) 0, rgba(255,240,250,.85) 40%, rgba(255,255,255,0) 75%); animation: poof .9s ease-out both; }
+.poof span { font-size: clamp(60px, 12vw, 160px); animation: spin .9s ease-out both; }
+.poof b { font-family: var(--font-title); font-weight: 400; font-size: clamp(30px, 5vw, 64px); color: var(--grape); }
+@keyframes poof { 0% { opacity: 0; } 25% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes spin { from { transform: scale(.2) rotate(-180deg); } to { transform: scale(1.2) rotate(20deg); } }
+
+@media (max-width: 640px) {
+  .bar { justify-content: center; }
+  .tools { margin-left: 0; }
+  .tool { min-width: 54px; }
+}
