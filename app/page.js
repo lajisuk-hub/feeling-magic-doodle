@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { COLORS, audio, stopAll } from "../lib/sound";
 import { PIECES, pickPiece, loadPiece } from "../lib/music";
+import { buildSvg, placeBox, animateSvg } from "../lib/picture";
 import { analyze, flatten, samplePoints, MagicPainter } from "../lib/magic";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -175,14 +176,6 @@ function doodlePng(strokes, aspect) {
   return { img: c.toDataURL("image/png"), w, h };
 }
 
-// AI 모양 선 → 그림 선 기록 모양으로 (색은 아이가 많이 쓴 색을 돌려 가며)
-function shapeStrokes(guess, strokes) {
-  const cnt = {};
-  for (const s of strokes) cnt[s.c] = (cnt[s.c] || 0) + s.p.length;
-  const cols = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).map(Number);
-  return guess.strokes.map((pts, i) => ({ c: cols[i % cols.length] ?? 0, t0: i, p: pts.map((q) => [q[0], q[1], 0]) }));
-}
-
 // ── 매직 화면: AI가 무엇을 닮았는지 찾아 그 모양을 그리고, 클래식 명곡이 흐른다 ──
 function Magic({ strokes, aspect, onNew }) {
   const stage = useRef(null);
@@ -195,6 +188,7 @@ function Magic({ strokes, aspect, onNew }) {
   const fire = an.current.fire;
   const piece = useRef(null);
   const player = useRef(null);
+  const pic = useRef(null);
   if (!piece.current) piece.current = pickPiece(fire);
 
   // 1) AI에게 묻기 + 곡 미리 불러 두기 (한 번만)
@@ -204,7 +198,7 @@ function Magic({ strokes, aspect, onNew }) {
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 25000);
     fetch("/api/guess", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doodlePng(strokes, aspect)), signal: ctl.signal })
-      .then((r) => r.json()).then((j) => { if (!gone) setGuess(j.strokes ? j : null); })
+      .then((r) => r.json()).then((j) => { if (!gone) setGuess(j.svg ? j : null); })
       .catch(() => { if (!gone) setGuess(null); })
       .finally(() => clearTimeout(to));
     return () => { gone = true; clearTimeout(to); ctl.abort(); player.current?.stop(); stopAll(); };
@@ -225,7 +219,38 @@ function Magic({ strokes, aspect, onNew }) {
       raf = requestAnimationFrame(idle);
       return () => { alive = false; cancelAnimationFrame(raf); };
     }
-    const target = guess ? shapeStrokes(guess, strokes) : strokes;
+    // AI가 그린 완성 그림: 아이 그림 자리 위에서 선이 그려지고 색이 채워진다
+    const svg = guess?.svg ? buildSvg(guess.svg) : null;
+    if (svg) {
+      const box = placeBox(strokes, w, h), host = pic.current;
+      Object.assign(host.style, { left: box.left + "px", top: box.top + "px", width: box.side + "px", height: box.side + "px" });
+      host.className = "pic"; host.replaceChildren(svg);
+      setPhase("draw");
+      player.current.play();
+      const toStage = (q) => ({ x: (box.left + q.x * box.side) / w, y: (box.top + q.y * box.side) / h, c: Math.floor(Math.random() * COLORS.length) });
+      const anim = animateSvg(svg, 7, (q) => (fire ? painter.burst(toStage(q), 0.6) : painter.pop(toStage(q))));
+      let finaled = false, lastPop = 0, prevLv = 0;
+      const t0 = performance.now();
+      const tick = (now) => {
+        if (!alive) return;
+        const dt = Math.min(0.05, (now - last) / 1000); last = now;
+        const t = (now - t0) / 1000;
+        if (!finaled && t >= anim.dur + 0.6) { finaled = true; host.classList.add("done"); painter.finale(); setTimeout(() => alive && setPhase("done"), 600); }
+        const lv = player.current.level(); // 음악이 커지는 순간 그림 둘레에서 반짝
+        if (finaled && lv - prevLv > 0.06 && t - lastPop > (fire ? 0.4 : 0.5)) {
+          const a = Math.random() * Math.PI * 2, r = 0.38 + Math.random() * 0.15;
+          const q = toStage({ x: 0.5 + Math.cos(a) * r, y: 0.5 + Math.sin(a) * r });
+          fire ? painter.burst(q, 0.6) : painter.pop(q); lastPop = t;
+        }
+        prevLv = prevLv * 0.7 + lv * 0.3;
+        painter.frame(dt, now / 1000);
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+      return () => { alive = false; anim.cancel(); cancelAnimationFrame(raf); };
+    }
+    if (pic.current) pic.current.replaceChildren();
+    const target = strokes; // AI가 못 맞혔으면 아이 그림 그대로
     const path = flatten(target, aspect);
     const samples = samplePoints(path, fire);
     const DRAW = Math.max(6, Math.min(11, 4 + path.total * 0.9)); // 모양을 그리는 시간(초)
@@ -267,7 +292,9 @@ function Magic({ strokes, aspect, onNew }) {
         </div>
       </div>
       <div className={`stage ${fire ? "night" : "garden"}`} ref={stage}>
-        {Object.entries(refs).map(([k, r]) => <canvas key={k} ref={r} className={`layer ${k}`} />)}
+        {["bg", "wash", "glow", "core"].map((k) => <canvas key={k} ref={refs[k]} className={`layer ${k}`} />)}
+        <div ref={pic} className="pic" />
+        <canvas ref={refs.fx} className="layer fx" />
         {phase === "think" && <div className="poof think" aria-hidden><span>✨</span><b>뾰로롱!</b><em>무엇을 닮았는지 찾고 있어요</em></div>}
       </div>
       <div className="bar end">
